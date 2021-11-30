@@ -1,7 +1,7 @@
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 
 def cosine_sim(im, s):
@@ -36,12 +36,13 @@ def L1_sim(im, s):
     score = -YmX.abs().sum(2).t()
     return score
 
+
 def L1_sim_norm(im, s):
     """L1 normalization distance  1 - L_1/K
     """
     YmX = (s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1))
            - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1)))
-    score = YmX.abs().sum(2).t()/im.size(1) -1
+    score = YmX.abs().sum(2).t() / im.size(1) - 1
     return score
 
 
@@ -53,30 +54,32 @@ def L2_sim(im, s):
     score = -YmX.pow(2).sum(2).t()
     return score
 
+
 def L2_sim_norm(im, s):
     """L2 normalization distance  1 - L_2/K
     """
     YmX = (s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1))
            - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1)))
-    score = YmX.pow(2).sum(2).t()/im.size(1) - 1
+    score = YmX.pow(2).sum(2).t() / im.size(1) - 1
     return score
 
 
 def jaccard_sim(im, s):
     im_bs = im.size(0)
     s_bs = s.size(0)
-    im = im.unsqueeze(1).expand(-1,s_bs,-1)
-    s = s.unsqueeze(0).expand(im_bs,-1,-1)
-    intersection = torch.min(im,s).sum(-1)
-    union = torch.max(im,s).sum(-1)
+    im = im.unsqueeze(1).expand(-1, s_bs, -1)
+    s = s.unsqueeze(0).expand(im_bs, -1, -1)
+    intersection = torch.min(im, s).sum(-1)
+    union = torch.max(im, s).sum(-1)
     score = intersection / union
     return score
 
 
 NAME_TO_SIM = {'cosine': cosine_sim, 'order': order_sim, 'euclidean': euclidean_sim, 'jaccard': jaccard_sim}
 
+
 def get_sim(name):
-    assert name in NAME_TO_SIM, '%s not supported.'%name
+    assert name in NAME_TO_SIM, '%s not supported.' % name
     return NAME_TO_SIM[name]
 
 
@@ -125,7 +128,7 @@ class TripletLoss(nn.Module):
         cost_s = None
         cost_im = None
         # compare every diagonal score to scores in its column
-        if self.direction in  ['v2t', 'all']:
+        if self.direction in ['v2t', 'all']:
             # caption retrieval
             cost_s = (self.margin + scores - d1).clamp(min=0)
             cost_s = cost_s.masked_fill_(I, 0)
@@ -151,3 +154,16 @@ class TripletLoss(nn.Module):
             return cost_s.sum() + cost_im.sum()
         else:
             return cost_s.mean() + cost_im.mean()
+
+
+class dual_softmax_loss(nn.Module):
+    def __init__(self, ):
+        super(dual_softmax_loss, self).__init__()
+
+    def forward(self, sim_matrix, temp=1000):
+        sim_matrix = sim_matrix * F.softmax(sim_matrix / temp, dim=0) * len(
+            sim_matrix)  # With an appropriate temperature parameter, the model achieves higher performance
+        logpt = F.log_softmax(sim_matrix, dim=-1)
+        logpt = torch.diag(logpt)
+        loss = -logpt
+        return loss

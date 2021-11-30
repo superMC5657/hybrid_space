@@ -146,17 +146,11 @@ The expected performance of Dual Encoding on MSR-VTT is as follows. Notice that 
     	<td>210.2</td> 
     </tr>
 	<tr>  
-		<td>Test1k-Miech</td>
-		<td>22.7</td><td>50.2</td><td>63.1</td><td>5</td><td>35.6</td> 
-    	<td>24.7</td><td>52.3</td><td>64.2</td><td>5</td><td>37.2</td> 
-    	<td>277.2</td> 
+		<td>With-ObjectDetect</td>
+		<td>12.0</td><td>31.8</td><td>45.2</td><td>16</td><td>21.8</td> 
+    	<td>22.3</td><td>49.5</td><td>59.2</td><td>5</td><td>10.4</td> 
+    	<td>215.6</td> 
     </tr>
-	<tr>  
-		<td>Test1k-Yu</td>
-		<td>21.5</td><td>48.8</td><td>60.2</td><td>6</td><td>34.0</td> 
-    	<td>21.7</td><td>49.0</td><td>61.4</td><td>6</td><td>34.6</td> 
-    	<td>262.6</td>      
-	</tr>
 </table>
 
 

@@ -50,7 +50,7 @@ def main():
         logging.info(resume + ' not exists.')
         sys.exit(0)
 
-    checkpoint = torch.load(resume)
+    checkpoint = torch.load(resume,map_location='cpu')
     start_epoch = checkpoint['epoch']
     best_rsum = checkpoint['best_rsum']
     print("=> loaded checkpoint '{}' (epoch {}, best_rsum {})"
