@@ -8,6 +8,8 @@ from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 import numpy as np
+
+import selayer
 from loss import TripletLoss
 from basic.bigfile import BigFile
 from collections import OrderedDict
@@ -206,12 +208,13 @@ class Video_multilevel_encoding_attentionv2(nn.Module):
         self.gru_pool = opt.gru_pool
         self.tag_vocab_size = opt.tag_vocab_size
         self.loss_fun = opt.loss_fun
+        self.seLayer = selayer.SELayer(channel=opt.visual_rnn_size * 2)
 
         # visual bidirectional rnn encoder
-        self.rnn = BiLstmAttention(batch_size=opt.batch_size, input_size=opt.visual_feat_dim,
-                                   output_size=opt.visual_rnn_size, bidirectional=True, dropout=opt.dropout,
-                                   attention_size=64, sequence_length=64)
-
+        # self.rnn = BiLstmAttention(batch_size=opt.batch_size, input_size=opt.visual_feat_dim,
+        #                            output_size=opt.visual_rnn_size, bidirectional=True, dropout=opt.dropout,
+        #                            attention_size=64, sequence_length=64)
+        self.rnn = nn.GRU(opt.visual_feat_dim, opt.visual_rnn_size, batch_first=True, bidirectional=True)
         # visual 1-d convolutional network
         self.convs1 = nn.ModuleList([
             nn.Conv2d(1, opt.visual_kernel_num, (window_size, self.rnn_output_size), padding=(window_size - 1, 0))
@@ -227,6 +230,7 @@ class Video_multilevel_encoding_attentionv2(nn.Module):
 
         # Level 2. Temporal-Aware Encoding by biGRU
         gru_init_out, _ = self.rnn(videos)
+        gru_init_out = self.seLayer(gru_init_out)
         if self.gru_pool == 'mean':
             mean_gru = Variable(torch.zeros(gru_init_out.size(0), self.rnn_output_size)).cuda()
             for i, batch in enumerate(gru_init_out):
@@ -1369,7 +1373,8 @@ class Dual_Encoding_Hybrid(Dual_Encoding):
 
 NAME_TO_MODELS = {'dual_encoding_latent': Dual_Encoding, 'dual_encoding_hybrid': Dual_Encoding_Hybrid,
                   "dual_encoding_transformer_latent": Dual_Encoding_Transformer,
-                  "dual_encoding_attention_latent": Dual_Encoding_Attention}
+                  "dual_encoding_attention_latent": Dual_Encoding_Attention,
+                  "dual_encoding_attentionv2_latent": Dual_Encoding_Attentionv2}
 
 
 def get_model(name):
