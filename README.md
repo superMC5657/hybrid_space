@@ -145,15 +145,57 @@ The expected performance of Dual Encoding on MSR-VTT is as follows. Notice that 
     	<td>21.6</td><td>45.9</td><td>58.5</td><td>7</td><td>10.3</td> 
     	<td>210.2</td> 
     </tr>
-	<tr>  
-		<td>With-ObjectDetect</td>
-		<td>12.0</td><td>31.8</td><td>45.2</td><td>16</td><td>21.8</td> 
-    	<td>22.3</td><td>49.5</td><td>59.2</td><td>5</td><td>10.4</td> 
-    	<td>215.6</td> 
+        <tr>  
+    	<td>ChannelAttention</td>
+		<td>11.9</td><td>30.9</td><td>41.8</td><td>16</td><td>21.6</td> 
+    	<td>22.3</td><td>46.6</td><td>59.2</td><td>5</td><td>10.5</td> 
+    	<td>214.6</td> 
+    </tr>
+        <tr>  
+    	<td>TimeAttention</td>
+		<td>12.2</td><td>31.2</td><td>42.3</td><td>15</td><td>21.9</td> 
+    	<td>21.8</td><td>46.3</td><td>58.9</td><td>6</td><td>10.4</td> 
+    	<td>219.1</td> 
+    </tr>
+        <tr>  
+    	<td>DualAttention</td>
+		<td>12.3</td><td>32.6</td><td>43.1</td><td>14</td><td>22.5</td> 
+    	<td>22.4</td><td>48.1</td><td>60.4</td><td>5</td><td>10.7</td> 
+    	<td>230.5</td> 
+    </tr>
+        <tr>  
+    	<td>Transformer</td>
+		<td>11.5</td><td>30.2</td><td>41.0</td><td>18</td><td>21.1</td> 
+    	<td>21.5</td><td>45.5</td><td>58.0</td><td>7</td><td>9.8</td> 
+    	<td>208.2</td> 
     </tr>
 </table>
 
 
+
+
+
+
+<table>
+    <tr>
+        <th rowspan='2'>Split</th><th colspan='5'>Text-to-Video Retrieval</th> <th colspan='5'>Video-to-Text Retrieval</th>  <th rowspan='2'>SumR</th>
+    </tr>
+    <tr>
+        <th> R@1 </th> <th> R@5 </th> <th> R@10 </th> <th> MedR </th> <th>	mAP </th> <th> R@1 </th> <th> R@5 </th> <th> R@10 </th> <th> MedR </th> <th>	mAP </th>
+    </tr>
+    <tr>  
+    	<td>Official</td>
+		<td>11.8</td><td>30.6</td><td>41.8</td><td>17</td><td>21.4</td> 
+    	<td>21.6</td><td>45.9</td><td>58.5</td><td>7</td><td>10.3</td> 
+    	<td>210.2</td> 
+    </tr>
+	<tr>  
+		<td>With-ObjectDetect</td>
+		<td>12.6</td><td>31.8</td><td>43.7</td><td>15</td><td>23.2</td> 
+    	<td>22.5</td><td>47.5</td><td>61.2</td><td>5</td><td>11.5</td> 
+    	<td>223.6</td> 
+    </tr>
+</table>
 
 ## Dual Encoding on VATEX
 
