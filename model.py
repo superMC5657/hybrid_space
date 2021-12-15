@@ -9,7 +9,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 import numpy as np
 
-import selayer
+import attention
 from loss import TripletLoss
 from basic.bigfile import BigFile
 from collections import OrderedDict
@@ -194,6 +194,82 @@ class Video_multilevel_encoding(nn.Module):
         super(Video_multilevel_encoding, self).load_state_dict(new_state)
 
 
+class Video_multilevel_encoding_attentionv1(nn.Module):
+    """
+    Section 3.1. Video-side Multi-level Encoding
+    """
+
+    def __init__(self, opt):
+        super(Video_multilevel_encoding_attentionv1, self).__init__()
+
+        self.rnn_output_size = opt.visual_rnn_size * 2
+        self.dropout = nn.Dropout(p=opt.dropout)
+        self.concate = opt.concate
+        self.gru_pool = opt.gru_pool
+        self.tag_vocab_size = opt.tag_vocab_size
+        self.loss_fun = opt.loss_fun
+
+        # visual bidirectional rnn encoder
+        self.rnn = nn.GRU(opt.visual_feat_dim, opt.visual_rnn_size, batch_first=True, bidirectional=True)
+
+        self.time_attention = attention.TimeAttention()
+        # visual 1-d convolutional network
+        self.convs1 = nn.ModuleList([
+            nn.Conv2d(1, opt.visual_kernel_num, (window_size, self.rnn_output_size), padding=(window_size - 1, 0))
+            for window_size in opt.visual_kernel_sizes
+        ])
+
+    def forward(self, videos):
+        """Extract video feature vectors."""
+        videos, videos_origin, lengths, videos_mask = videos
+
+        # Level 1. Global Encoding by Mean Pooling According
+        org_out = videos_origin
+
+        # Level 2. Temporal-Aware Encoding by biGRU
+        gru_init_out, _ = self.rnn(videos)
+        time_attention_out = self.time_attention(gru_init_out)
+        gru_init_out = time_attention_out + gru_init_out
+
+        if self.gru_pool == 'mean':
+            mean_gru = Variable(torch.zeros(gru_init_out.size(0), self.rnn_output_size)).cuda()
+            for i, batch in enumerate(gru_init_out):
+                mean_gru[i] = torch.mean(batch[:lengths[i]], 0)
+            gru_out = mean_gru
+        elif self.gru_pool == 'max':
+            gru_out = torch.max(torch.mul(gru_init_out, videos_mask.unsqueeze(-1)), 1)[0]
+        gru_out = self.dropout(gru_out)
+
+        # Level 3. Local-Enhanced Encoding by biGRU-CNN
+        videos_mask = videos_mask.unsqueeze(2).expand(-1, -1, gru_init_out.size(2))  # (N,C,F1)
+        gru_init_out = gru_init_out * videos_mask
+        con_out = gru_init_out.unsqueeze(1)
+        con_out = [F.relu(conv(con_out)).squeeze(3) for conv in self.convs1]
+        con_out = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in con_out]
+        con_out = torch.cat(con_out, 1)
+        con_out = self.dropout(con_out)
+
+        # concatenation
+        if self.concate == 'full':
+            features = torch.cat((gru_out, con_out, org_out), 1)
+        elif self.concate == 'reduced':  # level 2+3
+            features = torch.cat((gru_out, con_out), 1)
+
+        return features
+
+    def load_state_dict(self, state_dict):
+        """Copies parameters. overwritting the default one to
+        accept state_dict from Full model
+        """
+        own_state = self.state_dict()
+        new_state = OrderedDict()
+        for name, param in state_dict.items():
+            if name in own_state:
+                new_state[name] = param
+
+        super(Video_multilevel_encoding_attentionv1, self).load_state_dict(new_state)
+
+
 class Video_multilevel_encoding_attentionv2(nn.Module):
     """
     Section 3.1. Video-side Multi-level Encoding
@@ -208,7 +284,7 @@ class Video_multilevel_encoding_attentionv2(nn.Module):
         self.gru_pool = opt.gru_pool
         self.tag_vocab_size = opt.tag_vocab_size
         self.loss_fun = opt.loss_fun
-        self.seLayer = selayer.SELayer(channel=opt.visual_rnn_size * 2)
+        self.channelAttention = attention.ChannelAttention(channel=opt.visual_rnn_size * 2)
 
         # visual bidirectional rnn encoder
         # self.rnn = BiLstmAttention(batch_size=opt.batch_size, input_size=opt.visual_feat_dim,
@@ -230,7 +306,7 @@ class Video_multilevel_encoding_attentionv2(nn.Module):
 
         # Level 2. Temporal-Aware Encoding by biGRU
         gru_init_out, _ = self.rnn(videos)
-        gru_init_out = self.seLayer(gru_init_out)
+        gru_init_out = self.channelAttention(gru_init_out) + gru_init_out
         if self.gru_pool == 'mean':
             mean_gru = Variable(torch.zeros(gru_init_out.size(0), self.rnn_output_size)).cuda()
             for i, batch in enumerate(gru_init_out):
@@ -270,13 +346,13 @@ class Video_multilevel_encoding_attentionv2(nn.Module):
         super(Video_multilevel_encoding_attentionv2, self).load_state_dict(new_state)
 
 
-class Video_multilevel_encoding_attention(nn.Module):
+class Video_multilevel_encoding_attentionv3(nn.Module):
     """
     Section 3.1. Video-side Multi-level Encoding
     """
 
     def __init__(self, opt):
-        super(Video_multilevel_encoding_attention, self).__init__()
+        super(Video_multilevel_encoding_attentionv3, self).__init__()
 
         self.rnn_output_size = opt.visual_rnn_size * 2
         self.dropout = nn.Dropout(p=opt.dropout)
@@ -284,12 +360,14 @@ class Video_multilevel_encoding_attention(nn.Module):
         self.gru_pool = opt.gru_pool
         self.tag_vocab_size = opt.tag_vocab_size
         self.loss_fun = opt.loss_fun
+        self.channelAttention = attention.ChannelAttention(channel=opt.visual_rnn_size * 2)
+        self.timeAttention = attention.TimeAttention()
 
         # visual bidirectional rnn encoder
+        # self.rnn = BiLstmAttention(batch_size=opt.batch_size, input_size=opt.visual_feat_dim,
+        #                            output_size=opt.visual_rnn_size, bidirectional=True, dropout=opt.dropout,
+        #                            attention_size=64, sequence_length=64)
         self.rnn = nn.GRU(opt.visual_feat_dim, opt.visual_rnn_size, batch_first=True, bidirectional=True)
-        self.attention = nn.Linear(opt.visual_rnn_size * 2, 1)
-        self.attention_out = nn.Linear(opt.visual_rnn_size * 2, opt.visual_rnn_size * 2)
-
         # visual 1-d convolutional network
         self.convs1 = nn.ModuleList([
             nn.Conv2d(1, opt.visual_kernel_num, (window_size, self.rnn_output_size), padding=(window_size - 1, 0))
@@ -305,9 +383,9 @@ class Video_multilevel_encoding_attention(nn.Module):
 
         # Level 2. Temporal-Aware Encoding by biGRU
         gru_init_out, _ = self.rnn(videos)
-        attention_out = F.softmax(self.attention(gru_init_out), dim=1).transpose(1, 2).contiguous()
-        gru_attention_out = torch.matmul(attention_out, gru_init_out).squeeze(1)
-
+        se_out = self.channelAttention(gru_init_out)
+        time_attention_out = self.timeAttention(se_out)
+        gru_init_out = gru_init_out + time_attention_out + se_out
         if self.gru_pool == 'mean':
             mean_gru = Variable(torch.zeros(gru_init_out.size(0), self.rnn_output_size)).cuda()
             for i, batch in enumerate(gru_init_out):
@@ -315,7 +393,7 @@ class Video_multilevel_encoding_attention(nn.Module):
             gru_out = mean_gru
         elif self.gru_pool == 'max':
             gru_out = torch.max(torch.mul(gru_init_out, videos_mask.unsqueeze(-1)), 1)[0]
-        gru_out = self.dropout(gru_attention_out + gru_out)
+        gru_out = self.dropout(gru_out)
 
         # Level 3. Local-Enhanced Encoding by biGRU-CNN
         videos_mask = videos_mask.unsqueeze(2).expand(-1, -1, gru_init_out.size(2))  # (N,C,F1)
@@ -344,7 +422,7 @@ class Video_multilevel_encoding_attention(nn.Module):
             if name in own_state:
                 new_state[name] = param
 
-        super(Video_multilevel_encoding_attention, self).load_state_dict(new_state)
+        super(Video_multilevel_encoding_attentionv3, self).load_state_dict(new_state)
 
 
 class Video_multilevel_encoding_transformer(nn.Module):
@@ -822,7 +900,7 @@ class Dual_Encoding(BaseModel):
         return vid_emb.size(0), loss_value
 
 
-class Dual_Encoding_Attention(BaseModel):
+class Dual_Encoding_Attentionv1(BaseModel):
     """
     dual encoding network
     """
@@ -830,7 +908,7 @@ class Dual_Encoding_Attention(BaseModel):
     def __init__(self, opt):
         # Build Models
         self.grad_clip = opt.grad_clip
-        self.vid_encoding = Video_multilevel_encoding_attention(opt)
+        self.vid_encoding = Video_multilevel_encoding_attentionv1(opt)
         self.text_encoding = Text_multilevel_encoding_attention(opt)
 
         self.vid_mapping = Latent_mapping(opt.visual_mapping_layers, opt.dropout, opt.tag_vocab_size)
@@ -978,6 +1056,153 @@ class Dual_Encoding_Attentionv2(BaseModel):
         # Build Models
         self.grad_clip = opt.grad_clip
         self.vid_encoding = Video_multilevel_encoding_attentionv2(opt)
+        self.text_encoding = Text_multilevel_encoding(opt)
+
+        self.vid_mapping = Latent_mapping(opt.visual_mapping_layers, opt.dropout, opt.tag_vocab_size)
+        self.text_mapping = Latent_mapping(opt.text_mapping_layers, opt.dropout, opt.tag_vocab_size)
+
+        self.init_info()
+
+        # Loss and Optimizer
+        if opt.loss_fun == 'mrl':
+            self.criterion = TripletLoss(margin=opt.margin,
+                                         measure=opt.measure,
+                                         max_violation=opt.max_violation,
+                                         cost_style=opt.cost_style,
+                                         direction=opt.direction)
+
+        if opt.optimizer == 'adam':
+            self.optimizer = torch.optim.Adam(self.params, lr=opt.learning_rate)
+        elif opt.optimizer == 'rmsprop':
+            self.optimizer = torch.optim.RMSprop(self.params, lr=opt.learning_rate)
+
+        self.Eiters = 0
+
+    def forward_emb(self, videos, targets, volatile=False, *args):
+        """Compute the video and caption embeddings
+        """
+        # video data
+        frames, mean_origin, video_lengths, vidoes_mask = videos
+        frames = Variable(frames, volatile=volatile)
+        if torch.cuda.is_available():
+            frames = frames.cuda()
+
+        mean_origin = Variable(mean_origin, volatile=volatile)
+        if torch.cuda.is_available():
+            mean_origin = mean_origin.cuda()
+
+        vidoes_mask = Variable(vidoes_mask, volatile=volatile)
+        if torch.cuda.is_available():
+            vidoes_mask = vidoes_mask.cuda()
+        videos_data = (frames, mean_origin, video_lengths, vidoes_mask)
+
+        # text data
+        captions, cap_bows, lengths, cap_masks = targets
+        if captions is not None:
+            captions = Variable(captions, volatile=volatile)
+            if torch.cuda.is_available():
+                captions = captions.cuda()
+
+        if cap_bows is not None:
+            cap_bows = Variable(cap_bows, volatile=volatile)
+            if torch.cuda.is_available():
+                cap_bows = cap_bows.cuda()
+
+        if cap_masks is not None:
+            cap_masks = Variable(cap_masks, volatile=volatile)
+            if torch.cuda.is_available():
+                cap_masks = cap_masks.cuda()
+        text_data = (captions, cap_bows, lengths, cap_masks)
+
+        vid_emb = self.vid_mapping(self.vid_encoding(videos_data))
+        cap_emb = self.text_mapping(self.text_encoding(text_data))
+        return vid_emb, cap_emb
+
+    def embed_vis(self, vis_data, volatile=True):
+        """Compute the video embeddings
+        """
+        # video data
+        frames, mean_origin, video_lengths, vidoes_mask = vis_data
+        frames = Variable(frames, volatile=volatile)
+        if torch.cuda.is_available():
+            frames = frames.cuda()
+
+        mean_origin = Variable(mean_origin, volatile=volatile)
+        if torch.cuda.is_available():
+            mean_origin = mean_origin.cuda()
+
+        vidoes_mask = Variable(vidoes_mask, volatile=volatile)
+        if torch.cuda.is_available():
+            vidoes_mask = vidoes_mask.cuda()
+        vis_data = (frames, mean_origin, video_lengths, vidoes_mask)
+
+        return self.vid_mapping(self.vid_encoding(vis_data))
+
+    def embed_txt(self, txt_data, volatile=True):
+        """Compute the caption embeddings
+        """
+        # text data
+        captions, cap_bows, lengths, cap_masks = txt_data
+        if captions is not None:
+            captions = Variable(captions, volatile=volatile)
+            if torch.cuda.is_available():
+                captions = captions.cuda()
+
+        if cap_bows is not None:
+            cap_bows = Variable(cap_bows, volatile=volatile)
+            if torch.cuda.is_available():
+                cap_bows = cap_bows.cuda()
+
+        if cap_masks is not None:
+            cap_masks = Variable(cap_masks, volatile=volatile)
+            if torch.cuda.is_available():
+                cap_masks = cap_masks.cuda()
+        txt_data = (captions, cap_bows, lengths, cap_masks)
+
+        return self.text_mapping(self.text_encoding(txt_data))
+
+    def forward_loss(self, cap_emb, vid_emb, *agrs, **kwargs):
+        """Compute the loss given pairs of video and caption embeddings
+        """
+        loss = self.criterion(cap_emb, vid_emb)
+        self.logger.update('Le', loss.item(), vid_emb.size(0))
+        # self.logger.update('Le', loss.data[0], vid_emb.size(0))
+
+        return loss
+
+    def train_emb(self, videos, captions, *args):
+        """One training step given videos and captions.
+        """
+        self.Eiters += 1
+        self.logger.update('Eit', self.Eiters)
+        self.logger.update('lr', self.optimizer.param_groups[0]['lr'])
+
+        # compute the embeddings
+        vid_emb, cap_emb = self.forward_emb(videos, captions, False)
+
+        # measure accuracy and record loss
+        self.optimizer.zero_grad()
+        loss = self.forward_loss(cap_emb, vid_emb)
+        loss_value = loss.item()
+
+        # compute gradient and do SGD step
+        loss.backward()
+        if self.grad_clip > 0:
+            clip_grad_norm_(self.params, self.grad_clip)
+        self.optimizer.step()
+
+        return vid_emb.size(0), loss_value
+
+
+class Dual_Encoding_Attentionv3(BaseModel):
+    """
+    dual encoding network
+    """
+
+    def __init__(self, opt):
+        # Build Models
+        self.grad_clip = opt.grad_clip
+        self.vid_encoding = Video_multilevel_encoding_attentionv3(opt)
         self.text_encoding = Text_multilevel_encoding(opt)
 
         self.vid_mapping = Latent_mapping(opt.visual_mapping_layers, opt.dropout, opt.tag_vocab_size)
@@ -1373,8 +1598,9 @@ class Dual_Encoding_Hybrid(Dual_Encoding):
 
 NAME_TO_MODELS = {'dual_encoding_latent': Dual_Encoding, 'dual_encoding_hybrid': Dual_Encoding_Hybrid,
                   "dual_encoding_transformer_latent": Dual_Encoding_Transformer,
-                  "dual_encoding_attention_latent": Dual_Encoding_Attention,
-                  "dual_encoding_attentionv2_latent": Dual_Encoding_Attentionv2}
+                  "dual_encoding_attentionv1_latent": Dual_Encoding_Attentionv1,
+                  "dual_encoding_attentionv2_latent": Dual_Encoding_Attentionv2,
+                  "dual_encoding_attentionv3_latent": Dual_Encoding_Attentionv3}
 
 
 def get_model(name):

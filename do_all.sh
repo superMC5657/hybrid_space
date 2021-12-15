@@ -1,6 +1,6 @@
 collection=msrvtt10k
 space=latent
-visual_feature=$1
+visual_feature=resnet-152
 rootpath=/home1/zhangyan/downloads/VisualSearch
 overwrite=1
 model=$2
