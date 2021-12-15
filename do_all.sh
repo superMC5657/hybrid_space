@@ -1,13 +1,13 @@
 collection=msrvtt10k
 space=latent
-visual_feature=resnet-152
+visual_feature=resnext101-resnet152
 rootpath=/home1/zhangyan/downloads/VisualSearch
 overwrite=1
-model=$2
-epochs=10
+model=$1
+epochs=15
 
 # training
-gpu=$3
+gpu=$2
 
 CUDA_VISIBLE_DEVICES=$gpu python trainer.py --rootpath $rootpath --overwrite $overwrite --max_violation --text_norm --visual_norm \
                                             --collection $collection --visual_feature $visual_feature --space $space --model $model --num_epochs $epochs \
